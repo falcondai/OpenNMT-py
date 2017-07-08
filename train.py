@@ -193,7 +193,8 @@ def eval(model, criterion, data):
     stats = onmt.Loss.Statistics()
     model.eval()
     loss = onmt.Loss.MemoryEfficientLoss(opt, model.generator, criterion,
-                                         eval=True, copy_loss=opt.copy_attn)
+                                         eval=True, copy_loss=opt.copy_attn,
+                                         coverage_loss=opt.coverage_attn)
     for i in range(len(data)):
         batch = data[i]
         outputs, attn, dec_hidden = model(batch.src, batch.tgt, batch.lengths)
@@ -218,7 +219,8 @@ def trainModel(model, trainData, validData, dataset, optim):
 
         mem_loss = onmt.Loss.MemoryEfficientLoss(opt, model.generator,
                                                  criterion,
-                                                 copy_loss=opt.copy_attn)
+                                                 copy_loss=opt.copy_attn,
+                                                 coverage_loss=opt.coverage_attn)
 
         # Shuffle mini batch order.
         batchOrder = torch.randperm(len(trainData))
@@ -264,7 +266,7 @@ def trainModel(model, trainData, validData, dataset, optim):
                 if opt.log_server:
                     report_stats.log("progress", experiment, optim)
                 report_stats = onmt.Loss.Statistics()
-
+                
         return total_stats
 
     for epoch in range(opt.start_epoch, opt.epochs + 1):

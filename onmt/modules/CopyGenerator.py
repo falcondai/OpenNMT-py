@@ -21,7 +21,10 @@ class CopyGenerator(nn.Module):
 
     def forward(self, hidden, attn, verbose=False):
         """
-        Computes p(w) = p(z=1) p_{copy}(w|z=0)  +  p(z=0) * p_{softmax}(w|z=0)
+        Computes p(w) = p(z=1) p_{copy}(w|z=1)  +  p(z=0) * p_{generate}(w|z=0)
+
+        reference: equation (7) in Abigail See et al
+        https://arxiv.org/abs/1704.04368
 
 
         Args:

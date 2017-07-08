@@ -108,8 +108,9 @@ class Dict(object):
         for i in self.special:
             newDict.addSpecial(self.idxToLabel[i])
 
-        for i in idx[:size]:
-            newDict.add(self.idxToLabel[i])
+        if size > 0:
+            for i in idx[:size]:
+                newDict.add(self.idxToLabel[i])
 
         return newDict
 

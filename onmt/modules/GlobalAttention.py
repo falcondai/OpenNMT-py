@@ -103,7 +103,7 @@ class GlobalAttention(nn.Module):
             # batch x sourceL x dim
             wquh = self.tanh(wquh)
             # batch x sourceL
-            attn = self.v(wquh.contiguous()).squeeze()
+            attn = self.v(wquh.contiguous()).squeeze(2)
 
         if self.mask is not None:
             attn.data.masked_fill_(self.mask, -float('inf'))

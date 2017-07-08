@@ -155,15 +155,17 @@ class MemoryEfficientLoss:
 
         if self.coverage_loss:
             original["coverage_t"] = attns["coverage"]
+            original["attn_t"] = attns["std"]
 
         if self.copy_loss:
-            original["attn_t"] = attns["copy"]
+            original["copy_t"] = attns["copy"]
             original["align_t"] = batch.alignment[1:]
 
         shards, dummies = shardVariables(original, self.max_batches, self.eval)
 
         def bottle(v):
             return v.view(-1, v.size(2))
+
         for s in shards:
             if not self.copy_loss:
                 loss_t, scores_t = self.compute_std_loss(bottle(s["out_t"]),
@@ -171,11 +173,11 @@ class MemoryEfficientLoss:
             else:
                 loss_t, scores_t = self.compute_copy_loss(
                     bottle(s["out_t"]), s["targ_t"],
-                    bottle(s["attn_t"]), bottle(s["align_t"]))
+                    bottle(s["copy_t"]), bottle(s["align_t"]))
 
             if self.coverage_loss:
-                loss_t += self.lambda_coverage * torch.min(s["coverage"],
-                                                           s["attn"]).sum()
+                loss_t += self.lambda_coverage * torch.min(s["coverage_t"],
+                                                           s["attn_t"]).sum()
 
             stats.update(self.score(loss_t, scores_t, s["targ_t"]))
             if not self.eval:
