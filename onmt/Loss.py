@@ -133,9 +133,10 @@ class MemoryEfficientLoss:
         return loss_t, scores_t
 
     def compute_copy_loss(self, out_t, targ_t, attn_t, align_t):
-        scores_t, c_attn_t = self.generator(out_t, attn_t)
-        loss_t = self.crit(scores_t, c_attn_t, targ_t, align_t)
-        return loss_t, scores_t
+        # the first return is probability, not logits
+        abs_prob_t, c_attn_t = self.generator(out_t, attn_t)
+        loss_t = self.crit(abs_prob_t, c_attn_t, targ_t, align_t)
+        return loss_t, abs_prob_t
 
     def loss(self, batch, outputs, attns):
         """

@@ -37,12 +37,12 @@ class CopyGenerator(nn.Module):
         """
         # Original probabilities.
         logits = self.linear(hidden)
-        logits[:, onmt.Constants.UNK] = -float('inf')
         logits[:, onmt.Constants.PAD] = -float('inf')
         prob = F.softmax(logits)
 
         # Probability of copying p(z=1) batch
         copy = F.sigmoid(self.linear_copy(hidden))
+        print('copy prob', copy)
 
         # Probibility of not copying: p_{word}(w) * (1 - p(z))
         out_prob = torch.mul(prob,  1 - copy.expand_as(prob))
@@ -64,8 +64,16 @@ class CopyGenerator(nn.Module):
 
 
 def CopyCriterion(probs, attn, targ, align, eps=1e-12):
-    copies = attn.mul(Variable(align)).sum(-1).add(eps)
-    # Can't use UNK, must copy.
-    out = torch.log(probs.gather(1, targ.view(-1, 1)).view(-1) + copies + eps)
+    # summing over all correct candidates in source
+    prob_copy_correct = attn.mul(Variable(align)).sum(-1).add(eps)
+    # UNK in target that can be copied from source
+    false_unk_mask = torch.mul(targ.eq(onmt.Constants.UNK),
+                               Variable(align).sum(-1).gt(0.))
+    # probability of abstractive generation, ignoring false UNK
+    prob_abs_correct = torch.mul(1. - false_unk_mask.float(),
+                                 probs.gather(1, targ.view(-1, 1))).view(-1)
+    # marginal probability of correct predictions
+    prob_correct = prob_abs_correct + prob_copy_correct
+    out = torch.log(prob_correct + eps)
     out = out.mul(targ.ne(onmt.Constants.PAD).float())
     return -out.sum()

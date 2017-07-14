@@ -266,7 +266,7 @@ def trainModel(model, trainData, validData, dataset, optim):
                 if opt.log_server:
                     report_stats.log("progress", experiment, optim)
                 report_stats = onmt.Loss.Statistics()
-                
+
         return total_stats
 
     for epoch in range(opt.start_epoch, opt.epochs + 1):
