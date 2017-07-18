@@ -127,6 +127,28 @@ class MemoryEfficientLoss:
         return Statistics(loss_t.data[0], non_padding.sum(),
                           num_correct_t)
 
+    def copy_score(self, loss_t, abs_prob_t, targ_t, c_attn_t, align_t):
+        """
+        Calculate the statistics of the exact perplexity of the target output
+        and an approximation of the prediction accuracy. It is an approximation
+        because (0) greedy decoding (1) not using the marginal probability of
+        copying a source word over its occurences (2) not using the marginal
+        probability of a word over copying or not.
+        """
+        non_padding = targ_t.ne(onmt.Constants.PAD).data
+        abs_probs, abs_idx = abs_prob_t.data.max(1)
+        c_probs, c_idx = c_attn_t.data.max(1)
+
+        # choose across abstractive and copy predictions with the max likelihood
+        abs_mask = abs_probs.gt(c_probs)
+        # check and combine the predictions
+        correct = abs_idx.eq(targ_t.data).mul(abs_mask) + \
+        align_t.byte().gather(1, c_idx).mul(abs_mask.eq(False))
+        num_correct_t = correct.masked_select(non_padding).sum()
+
+        return Statistics(loss_t.data[0], non_padding.sum(),
+                          num_correct_t)
+
     def compute_std_loss(self, out_t, targ_t):
         scores_t = self.generator(out_t)
         loss_t = self.crit(scores_t, targ_t.view(-1))
@@ -136,7 +158,7 @@ class MemoryEfficientLoss:
         # the first return is probability, not logits
         abs_prob_t, c_attn_t = self.generator(out_t, attn_t)
         loss_t = self.crit(abs_prob_t, c_attn_t, targ_t, align_t)
-        return loss_t, abs_prob_t
+        return loss_t, abs_prob_t, c_attn_t
 
     def loss(self, batch, outputs, attns):
         """
@@ -171,16 +193,19 @@ class MemoryEfficientLoss:
             if not self.copy_loss:
                 loss_t, scores_t = self.compute_std_loss(bottle(s["out_t"]),
                                                          s["targ_t"])
+                delta_stats = self.score(loss_t, scores_t, s["targ_t"])
             else:
-                loss_t, scores_t = self.compute_copy_loss(
+                loss_t, scores_t, c_attn_t = self.compute_copy_loss(
                     bottle(s["out_t"]), s["targ_t"],
                     bottle(s["copy_t"]), bottle(s["align_t"]))
+                delta_stats = self.copy_score(loss_t, scores_t, s["targ_t"],
+                                              c_attn_t, bottle(s["align_t"]))
 
             if self.coverage_loss:
                 loss_t += self.lambda_coverage * torch.min(s["coverage_t"],
                                                            s["attn_t"]).sum()
 
-            stats.update(self.score(loss_t, scores_t, s["targ_t"]))
+            stats.update(delta_stats)
             if not self.eval:
                 loss_t.div(batch.batchSize).backward()
 

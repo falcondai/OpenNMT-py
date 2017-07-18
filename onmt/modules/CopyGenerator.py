@@ -21,7 +21,7 @@ class CopyGenerator(nn.Module):
 
     def forward(self, hidden, attn, verbose=False):
         """
-        Computes p(w) = p(z=1) p_{copy}(w|z=1)  +  p(z=0) * p_{generate}(w|z=0)
+        Computes p(w) = p(z=1) p_{copy}(w|z=1) + p(z=0) * p_{abstractive}(w|z=0)
 
         reference: equation (7) in Abigail See et al
         https://arxiv.org/abs/1704.04368
@@ -42,10 +42,12 @@ class CopyGenerator(nn.Module):
 
         # Probability of copying p(z=1) batch
         copy = F.sigmoid(self.linear_copy(hidden))
-        print('copy prob', copy)
 
-        # Probibility of not copying: p_{word}(w) * (1 - p(z))
+        # Probibility of abstractively generating word w:
+        # p_{abstractive}(w) * (1 - p(z=1))
         out_prob = torch.mul(prob,  1 - copy.expand_as(prob))
+        # Probability of copying a source word at position i w_i:
+        # P_{copy}(w_i) * p(z=1)
         mul_attn = torch.mul(attn, copy.expand_as(attn))
         return out_prob, mul_attn
 
@@ -70,7 +72,7 @@ def CopyCriterion(probs, attn, targ, align, eps=1e-12):
     false_unk_mask = torch.mul(targ.eq(onmt.Constants.UNK),
                                Variable(align).sum(-1).gt(0.))
     # probability of abstractive generation, ignoring false UNK
-    prob_abs_correct = torch.mul(1. - false_unk_mask.float(),
+    prob_abs_correct = torch.mul(false_unk_mask.eq(False).float(),
                                  probs.gather(1, targ.view(-1, 1))).view(-1)
     # marginal probability of correct predictions
     prob_correct = prob_abs_correct + prob_copy_correct
