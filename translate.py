@@ -78,7 +78,14 @@ def main():
         import json
         translator.initBeamAccum()
 
-    data = onmt.IO.ONMTDataset(opt.src, opt.tgt, translator.fields, None)
+    setattr(opt, 'dynamic_dict', True)
+    setattr(opt, 'share_vocab', True)
+    setattr(opt, 'tgt_seq_length_trunc', 100000)
+    setattr(opt, 'src_seq_length_trunc', 100000)
+    setattr(opt, 'tgt_seq_length', 400)
+    setattr(opt, 'src_seq_length', 2000)
+
+    data = onmt.IO.ONMTDataset(opt.src, opt.tgt, translator.fields, opt)
 
     testData = onmt.IO.OrderedIterator(
         dataset=data, device=opt.gpu if opt.gpu else -1,
