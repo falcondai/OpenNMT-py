@@ -312,7 +312,7 @@ def trainModel(model, criterion, trainData, validData, fields, optim):
             valid_stats.log("valid", experiment, optim)
 
         #  (3) update the learning rate
-        optim.updateLearningRate(valid_stats.ppl(), epoch)
+        # optim.updateLearningRate(valid_stats.ppl(), epoch)
 
         #  (4) drop a checkpoint
         if epoch >= opt.start_checkpoint_at:
@@ -387,6 +387,12 @@ def main():
         model.decoder.embeddings.load_pretrained_vectors(opt.pre_word_vecs_dec)
         optim = onmt.Optim(opt)
         optim.set_parameters(model.parameters())
+
+        # HACK set accumulators to 0.1
+        for group in optim.optimizer.param_groups:
+            for p in group['params']:
+                state = optim.optimizer.state[p]
+                state['sum'] += 0.1
     else:
         print('Loading optimizer from checkpoint:')
         optim = checkpoint['optim']
