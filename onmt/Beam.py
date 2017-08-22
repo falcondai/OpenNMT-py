@@ -79,10 +79,10 @@ class Beam(object):
         # Sum the previous scores.
         pen = None
         if len(self.prevKs) > 0:
-            beamLk = wordLk + self.scores.unsqueeze(1).expand_as(wordLk)
+            beamLk = wordLk + self.scores.unsqueeze(1)
+            # Shape [beam_size]
             pen = self._global_score()
-            aeq(pen.size(), torch.Size([self.size]))
-            beamLk.add_(pen.unsqueeze(1).expand_as(beamLk))
+            beamLk.add_(pen.unsqueeze(1))
         else:
             beamLk = wordLk[0]
 
