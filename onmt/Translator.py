@@ -74,6 +74,8 @@ class Translator(object):
 
         _, src_lengths = batch.src
         src = make_features(batch, self.fields)
+        if self.opt.gpu > -1:
+            src = src.cuda()
 
         #  (1) run the encoder on the src
         encStates, context = self.model.encoder(src, src_lengths)
@@ -102,6 +104,10 @@ class Translator(object):
         #  (1) run the encoder on the src
         _, src_lengths = batch.src
         src = make_features(batch, self.fields)
+        if self.opt.gpu > -1:
+            src = src.cuda()
+            batch.src_map = batch.src_map.cuda()
+
         encStates, context = self.model.encoder(src, src_lengths)
         decStates = self.model.init_decoder_state(context, encStates)
 
@@ -138,7 +144,7 @@ class Translator(object):
                 # beam x tgt_vocab
             else:
                 attn_copy = attn["copy"].squeeze(0).contiguous()
-                
+
                 out = self.model.generator.forward(
                     decOut, attn_copy, src_map)
                 # beam x (tgt_vocab + extra_vocab)

@@ -1,6 +1,7 @@
 from __future__ import division
 import torch
 import onmt
+from onmt.modules import aeq
 
 """
  Class for managing the internals of the beam search process.
@@ -32,15 +33,15 @@ class Beam(object):
 
         # The attentions (matrix) for each time.
         self.attn = []
-        
-        # Sum of attentions at beam. 
+
+        # Sum of attentions at beam.
         self.coverage = None
-        self.sents = None 
+        self.sents = None
 
         # Time and k pair for finished.
         self.finished = []
         self.n_best = n_best
-        
+
     def getCurrentState(self):
         "Get the outputs for the current timestep."
         return self.nextYs[-1]
@@ -52,15 +53,15 @@ class Beam(object):
     def _global_score(self, end=False, beta = 0.15):
         # pen = self.tt.FloatTensor(self.nextYs[-1].size(0)).fill_(0)
         pen = beta * torch.min(1.0 - self.coverage,
-                               self.coverage.clone().fill_(0.0)).sum(1).squeeze(1)
+                               self.coverage.clone().fill_(0.0)).sum(1, keepdim=False)
         for i in range(self.nextYs[-1].size(0)):
             if not end and self.nextYs[-1][i]  == self.vocab.stoi[onmt.IO.EOS_WORD]:
                 pen[i] = -1e20
-            
+
             if self.sents[i] < 3:
                 pen[i] -= 1.0
         return pen
-    
+
     def advance(self, wordLk, attnOut, alpha = 0.9):
         """
         Given prob over words for every last beam `wordLk` and attention
@@ -80,17 +81,16 @@ class Beam(object):
         if len(self.prevKs) > 0:
             beamLk = wordLk + self.scores.unsqueeze(1).expand_as(wordLk)
             pen = self._global_score()
+            aeq(pen.size(), torch.Size([self.size]))
             beamLk.add_(pen.unsqueeze(1).expand_as(beamLk))
         else:
             beamLk = wordLk[0]
-            
+
         flatBeamLk = beamLk.view(-1)
 
-
-        
         bestScores, bestScoresId = flatBeamLk.topk(self.size, 0, True, True)
         self.allScores.append(self.scores)
-        self.scores = bestScores 
+        self.scores = bestScores
 
         # bestScoresId is flattened beam x word array, so calculate which
         # word and beam each score came from
@@ -110,13 +110,13 @@ class Beam(object):
             self.sents = self.nextYs[-1].eq(self.vocab.stoi["</t>"])
         else:
             self.sents = self.sents.index_select(0, prevK).add(self.nextYs[-1].eq(self.vocab.stoi["</t>"]))
-            
+
         for i in range(self.nextYs[-1].size(0)):
             if self.nextYs[-1][i] == self.vocab.stoi[onmt.IO.EOS_WORD]:
                 k = i
                 # Ranking score from Wu et al.
                 pen = self._global_score(end=True)
-                s = self.scores[i] / ((5 + len(self.nextYs)) ** alpha / (5 + 1) ** alpha)                
+                s = self.scores[i] / ((5 + len(self.nextYs)) ** alpha / (5 + 1) ** alpha)
                 coverage_bonus = pen[i] if pen is not None else 0
                 s += coverage_bonus
                 self.finished.append((s, len(self.nextYs) - 1, i, coverage_bonus))
@@ -126,7 +126,7 @@ class Beam(object):
         #     self.done = True
         #     self.allScores.append(self.scores)
 
-            
+
         return self.done
 
     def sortFinished(self):
@@ -135,7 +135,7 @@ class Beam(object):
         scores = [s for s, _, _, cb in self.finished]
         ks = [(t, k, cb) for _, t, k, cb in self.finished]
         return scores, ks
-        
+
     def getHyp(self, timestep, k):
         """
         Walk back to construct the full hypothesis.

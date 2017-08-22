@@ -133,7 +133,7 @@ def main():
                 print(len(predBatch[b][0]))
                 os.write(1, bytes('\n PRED %d: %s\n' %
                                   (count, " ".join(predBatch[b][0])), 'UTF-8'))
-                print("PRED SCORE: %.4f" % predScore[b][0])
+                print("PRED SCORE: %.4f\n" % predScore[b][0])
 
                 if opt.tgt:
                     tgtSent = ' '.join(tgtBatch[b])
