@@ -38,10 +38,12 @@ class GlobalAttention(nn.Module):
     $$a_j = softmax(v_a^T \tanh(W_a q + U_a h_j) )$$.
 
     """
-    def __init__(self, dim, coverage=False, attn_type="dot"):
+    def __init__(self, dim_context, dim_query, coverage=False, attn_type="dot"):
         super(GlobalAttention, self).__init__()
 
-        self.dim = dim
+        self.dim_context = dim_context
+        self.dim_query = dim_query
+        self.dim_attention = dim_context
         if attn_type == "dotprod":
             attn_type = "general"
         self.attn_type = attn_type
@@ -49,14 +51,14 @@ class GlobalAttention(nn.Module):
                 "Please select a valid attention type.")
 
         if self.attn_type == "general":
-            self.linear_in = nn.Linear(dim, dim, bias=False)
+            self.linear_in = nn.Linear(dim_query, dim_context, bias=False)
         elif self.attn_type == "mlp":
-            self.linear_context = BottleLinear(dim, dim, bias=False)
-            self.linear_query = nn.Linear(dim, dim, bias=True)
-            self.v = BottleLinear(dim, 1, bias=False)
+            self.linear_context = BottleLinear(dim_context, self.dim_attention, bias=False)
+            self.linear_query = nn.Linear(dim_query, self.dim_attention, bias=True)
+            self.v = BottleLinear(self.dim_attention, 1, bias=False)
         # mlp wants it with bias
         out_bias = self.attn_type == "mlp"
-        self.linear_out = nn.Linear(dim*2, dim, bias=out_bias)
+        self.linear_out = nn.Linear(dim_query + dim_context, dim_query, bias=out_bias)
 
         self.sm = nn.Softmax()
         self.tanh = nn.Tanh()
@@ -70,8 +72,8 @@ class GlobalAttention(nn.Module):
 
     def score(self, h_t, h_s):
         """
-        h_t (FloatTensor): batch x dim
-        h_s (FloatTensor): batch x src_len x dim
+        h_t (FloatTensor): batch x dim_query
+        h_s (FloatTensor): batch x src_len x dim_context
         returns scores (FloatTensor): batch x src_len:
             raw attention scores for each src index
         """
@@ -80,8 +82,9 @@ class GlobalAttention(nn.Module):
         src_batch, _, src_dim = h_s.size()
         tgt_batch, tgt_dim = h_t.size()
         aeq(src_batch, tgt_batch)
-        aeq(src_dim, tgt_dim)
-        aeq(self.dim, src_dim)
+        aeq(self.dim_context, src_dim)
+        aeq(self.dim_query, tgt_dim)
+        # aeq(self.dim_attention, src_dim)
 
         if self.attn_type in ["general", "dot"]:
             if self.attn_type == "general":
@@ -102,17 +105,17 @@ class GlobalAttention(nn.Module):
 
     def forward(self, input, context, coverage=None):
         """
-        input (FloatTensor): batch x dim: decoder's rnn's output.
-        context (FloatTensor): batch x src_len x dim: src hidden states
+        input (FloatTensor): batch x dim_query: decoder's rnn's output.
+        context (FloatTensor): batch x src_len x dim_context: src hidden states
         coverage (FloatTensor): batch x src_len
         """
 
         # Check input sizes
-        batch, sourceL, dim = context.size()
-        batch_, dim_ = input.size()
+        batch, sourceL, dim_context = context.size()
+        batch_, dim_query = input.size()
         aeq(batch, batch_)
-        aeq(dim, dim_)
-        aeq(self.dim, dim)
+        aeq(self.dim_context, dim_context)
+        aeq(self.dim_query, dim_query)
         if coverage is not None:
             batch_, sourceL_ = coverage.size()
             aeq(batch, batch_)
@@ -150,8 +153,8 @@ class GlobalAttention(nn.Module):
         batch_, sourceL_ = align_vector.size()
         aeq(batch, batch_)
         aeq(sourceL, sourceL_)
-        batch_, dim_ = attn_h_t.size()
+        batch_, dim_out = attn_h_t.size()
         aeq(batch, batch_)
-        aeq(dim, dim_)
+        aeq(self.dim_query, dim_out)
 
         return attn_h_t, align_vector

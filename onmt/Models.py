@@ -25,10 +25,11 @@ class Encoder(nn.Module):
 
         # Use a bidirectional model.
         self.num_directions = 2 if opt.brnn else 1
-        assert opt.rnn_size % self.num_directions == 0
+        # assert opt.rnn_size % self.num_directions == 0
 
         # Size of the encoder RNN.
-        self.hidden_size = opt.rnn_size // self.num_directions
+        self.hidden_size = opt.rnn_size
+
         input_size = opt.word_vec_size
 
         super(Encoder, self).__init__()
@@ -135,7 +136,8 @@ class Decoder(nn.Module):
         self.dropout = nn.Dropout(opt.dropout)
 
         # Std attention layer.
-        self.attn = onmt.modules.GlobalAttention(opt.rnn_size,
+        # HACK only works for biLSTM
+        self.attn = onmt.modules.GlobalAttention(opt.rnn_size * 2, opt.rnn_size,
                                                  coverage=self._coverage,
                                                  attn_type=opt.attention_type)
 
@@ -147,7 +149,7 @@ class Decoder(nn.Module):
             else:
                 # Separate Copy Attention.
                 self.copy_attn = onmt.modules.GlobalAttention(
-                    opt.rnn_size, attn_type=opt.attention_type)
+                    opt.rnn_size * 2, opt.rnn_size, attn_type=opt.attention_type)
             self._copy = True
 
     def forward(self, input, src, context, state):
@@ -226,7 +228,7 @@ class Decoder(nn.Module):
                 emb_t = emb_t.squeeze(0)
                 if self.input_feed:
                     emb_t = torch.cat([emb_t, output], 1)
-
+                # print('h', hidden[0].size(), hidden[1].size())
                 rnn_output, hidden = self.rnn(emb_t, hidden)
                 attn_output, attn = self.attn(rnn_output,
                                               context.transpose(0, 1))
@@ -268,6 +270,9 @@ class NMTModel(nn.Module):
         super(NMTModel, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
+        # HACK only for biLSTM
+        self.enc_dec_converter_c = nn.Linear(2 * encoder.hidden_size, decoder.hidden_size)
+        self.enc_dec_converter_h = nn.Linear(2 * encoder.hidden_size, decoder.hidden_size)
 
     def _fix_enc_hidden(self, h):
         """
@@ -279,13 +284,15 @@ class NMTModel(nn.Module):
         return h
 
     def init_decoder_state(self, context, enc_hidden):
-        if self.decoder.decoder_layer == "transformer":
-            return TransformerDecoderState()
-        elif isinstance(enc_hidden, tuple):
-            dec = RNNDecoderState(tuple([self._fix_enc_hidden(enc_hidden[i])
-                                         for i in range(len(enc_hidden))]))
-        else:
-            dec = RNNDecoderState(self._fix_enc_hidden(enc_hidden))
+        # HACK only for 1-layer biLSTM
+        # if self.decoder.decoder_layer == "transformer":
+        #     return TransformerDecoderState()
+        # elif isinstance(enc_hidden, tuple):
+        #     dec = RNNDecoderState(tuple([self._fix_enc_hidden(enc_hidden[i])
+        #                                  for i in range(len(enc_hidden))]))
+        # else:
+        #     dec = RNNDecoderState(self._fix_enc_hidden(enc_hidden))
+        dec = RNNDecoderState(enc_hidden)
         dec.init_input_feed(context, self.decoder.hidden_size)
         return dec
 
@@ -304,7 +311,15 @@ class NMTModel(nn.Module):
         src = src
         tgt = tgt[:-1]  # exclude last target from inputs
         enc_hidden, context = self.encoder(src, lengths)
-        enc_state = self.init_decoder_state(context, enc_hidden)
+        # HACK convert biLSTM encoder to decoder state
+        enc_h, enc_c = enc_hidden
+        bs = enc_h.size(1)
+
+        dec_h = self.enc_dec_converter_h(enc_h.transpose(0, 1).contiguous().view(bs, -1)).unsqueeze(0)
+        dec_c = self.enc_dec_converter_c(enc_c.transpose(0, 1).contiguous().view(bs, -1)).unsqueeze(0)
+        # dec_h, dec_c: 1 x batch x hidden
+
+        enc_state = self.init_decoder_state(context, (dec_h, dec_c))
         out, dec_state, attns = self.decoder(tgt, src, context,
                                              enc_state if dec_state is None
                                              else dec_state)
