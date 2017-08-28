@@ -208,7 +208,6 @@ class Decoder(nn.Module):
             attns["std"] = attn.transpose(0, 1).contiguous()
             if self._copy:
                 attns["copy"] = attn.transpose(0, 1).contiguous()
-            # print(attns["copy"].size())
             state = TransformerDecoderState(input.unsqueeze(2))
         else:
             assert isinstance(state, RNNDecoderState)
@@ -327,20 +326,13 @@ class DecoderState(object):
         self._resetAll([Variable(e.data.repeat(1, beamSize, 1))
                         for e in self.all])
 
-    # def beamUpdate_(self, idx, positions, beamSize):
-    #     for e in self.all:
-    #         a, br, d = e.size()
-    #         sentStates = e.view(a, beamSize, br // beamSize, d)[:, :, idx]
-    #         sentStates.data.copy_(
-    #             sentStates.data.index_select(1, positions))
-
-
-    def beamUpdate_(self, positions):
-        for sentStates in self.all:
+    def beamUpdate_(self, idx, positions, beamSize):
+        for e in self.all:
+            a, batchbeam, d = e.size()
+            batchSize = batchbeam // beamSize
+            sentStates = e.view(a, beamSize, batchSize, d)[:, :, idx]
             sentStates.data.copy_(
                 sentStates.data.index_select(1, positions))
-
-
 
 class RNNDecoderState(DecoderState):
     def __init__(self, rnnstate, input_feed=None, coverage=None):
