@@ -25,9 +25,8 @@ class Encoder(nn.Module):
 
         # Use a bidirectional model.
         self.num_directions = 2 if opt.brnn else 1
-        # assert opt.rnn_size % self.num_directions == 0
 
-        # Size of the encoder RNN.
+        # Dimensionality of the encoder's hidden state
         self.hidden_size = opt.rnn_size
 
         input_size = opt.word_vec_size
@@ -99,6 +98,7 @@ class Decoder(nn.Module):
         self.decoder_layer = opt.decoder_layer
         self._coverage = opt.coverage_attn
         self.hidden_size = opt.rnn_size
+        self.num_encoder_directions = 2 if opt.brnn else 1
         self.input_feed = opt.input_feed
         input_size = opt.word_vec_size
         if self.input_feed:
@@ -136,8 +136,9 @@ class Decoder(nn.Module):
         self.dropout = nn.Dropout(opt.dropout)
 
         # Std attention layer.
-        # HACK only works for biLSTM
-        self.attn = onmt.modules.GlobalAttention(opt.rnn_size * 2, opt.rnn_size,
+        dim_context = opt.rnn_size * self.num_encoder_directions
+        print('dim_context', dim_context)
+        self.attn = onmt.modules.GlobalAttention(dim_context, opt.rnn_size,
                                                  coverage=self._coverage,
                                                  attn_type=opt.attention_type)
 
@@ -149,7 +150,7 @@ class Decoder(nn.Module):
             else:
                 # Separate Copy Attention.
                 self.copy_attn = onmt.modules.GlobalAttention(
-                    opt.rnn_size * 2, opt.rnn_size, attn_type=opt.attention_type)
+                    dim_context, opt.rnn_size, attn_type=opt.attention_type)
             self._copy = True
 
     def forward(self, input, src, context, state):
@@ -265,14 +266,22 @@ class Decoder(nn.Module):
 
 
 class NMTModel(nn.Module):
-    def __init__(self, encoder, decoder, multigpu=False):
+    def __init__(self, encoder, decoder, multigpu=False, use_enc_dec_converter=True):
         self.multigpu = multigpu
         super(NMTModel, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
-        # HACK only for biLSTM
-        self.enc_dec_converter_c = nn.Linear(2 * encoder.hidden_size, decoder.hidden_size)
-        self.enc_dec_converter_h = nn.Linear(2 * encoder.hidden_size, decoder.hidden_size)
+        self.dim_enc_hidden = self.encoder.num_directions * self.encoder.hidden_size
+        self.use_enc_dec_converter = use_enc_dec_converter
+        if use_enc_dec_converter:
+            # HACK only works for LSTM RNN
+            self.enc_dec_converter_c = nn.Linear(self.dim_enc_hidden,
+                                                 decoder.hidden_size)
+            self.enc_dec_converter_h = nn.Linear(self.dim_enc_hidden,
+                                                 decoder.hidden_size)
+        else:
+            # Do not need a converter if the sizes match
+            aeq(encoder.hidden_size, decoder.hidden_size)
 
     def _fix_enc_hidden(self, h):
         """
@@ -284,15 +293,31 @@ class NMTModel(nn.Module):
         return h
 
     def init_decoder_state(self, context, enc_hidden):
-        # HACK only for 1-layer biLSTM
-        # if self.decoder.decoder_layer == "transformer":
-        #     return TransformerDecoderState()
-        # elif isinstance(enc_hidden, tuple):
-        #     dec = RNNDecoderState(tuple([self._fix_enc_hidden(enc_hidden[i])
-        #                                  for i in range(len(enc_hidden))]))
-        # else:
-        #     dec = RNNDecoderState(self._fix_enc_hidden(enc_hidden))
-        dec = RNNDecoderState(enc_hidden)
+        if self.decoder.decoder_layer == "transformer":
+            return TransformerDecoderState()
+        elif isinstance(enc_hidden, tuple):
+            # XXX only works for LSTM with (h, c)
+            aeq(len(enc_hidden), 2)
+            h, c = enc_hidden
+
+            bs = h.size(1)
+            fixed_h = self._fix_enc_hidden(h)
+
+            fixed_c = self._fix_enc_hidden(c)
+            if self.use_enc_dec_converter:
+                fixed_h = self.enc_dec_converter_h(
+                    fixed_h.view(-1, self.dim_enc_hidden)
+                    ).view(self.decoder.layers, bs, self.decoder.hidden_size)
+
+                fixed_c = self.enc_dec_converter_c(
+                    fixed_c.view(-1, self.dim_enc_hidden)
+                    ).view(self.decoder.layers, bs, self.decoder.hidden_size)
+            dec = RNNDecoderState(tuple([fixed_h, fixed_c]))
+            # dec = RNNDecoderState(tuple([self._fix_enc_hidden(enc_hidden[i])
+            #                              for i in range(len(enc_hidden))]))
+        else:
+            dec = RNNDecoderState(self._fix_enc_hidden(enc_hidden))
+
         dec.init_input_feed(context, self.decoder.hidden_size)
         return dec
 
@@ -311,15 +336,8 @@ class NMTModel(nn.Module):
         src = src
         tgt = tgt[:-1]  # exclude last target from inputs
         enc_hidden, context = self.encoder(src, lengths)
-        # HACK convert biLSTM encoder to decoder state
-        enc_h, enc_c = enc_hidden
-        bs = enc_h.size(1)
 
-        dec_h = self.enc_dec_converter_h(enc_h.transpose(0, 1).contiguous().view(bs, -1)).unsqueeze(0)
-        dec_c = self.enc_dec_converter_c(enc_c.transpose(0, 1).contiguous().view(bs, -1)).unsqueeze(0)
-        # dec_h, dec_c: 1 x batch x hidden
-
-        enc_state = self.init_decoder_state(context, (dec_h, dec_c))
+        enc_state = self.init_decoder_state(context, enc_hidden)
         out, dec_state, attns = self.decoder(tgt, src, context,
                                              enc_state if dec_state is None
                                              else dec_state)

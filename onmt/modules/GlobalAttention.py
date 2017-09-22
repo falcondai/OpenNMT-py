@@ -53,19 +53,22 @@ class GlobalAttention(nn.Module):
         if self.attn_type == "general":
             self.linear_in = nn.Linear(dim_query, dim_context, bias=False)
         elif self.attn_type == "mlp":
-            self.linear_context = BottleLinear(dim_context, self.dim_attention, bias=False)
-            self.linear_query = nn.Linear(dim_query, self.dim_attention, bias=True)
+            self.linear_context = BottleLinear(dim_context, self.dim_attention,
+                                               bias=False)
+            self.linear_query = nn.Linear(dim_query, self.dim_attention,
+                                          bias=True)
             self.v = BottleLinear(self.dim_attention, 1, bias=False)
         # mlp wants it with bias
         out_bias = self.attn_type == "mlp"
-        self.linear_out = nn.Linear(dim_query + dim_context, dim_query, bias=out_bias)
+        self.linear_out = nn.Linear(dim_query + dim_context, dim_query,
+                                    bias=out_bias)
 
         self.sm = nn.Softmax()
         self.tanh = nn.Tanh()
         self.mask = None
 
         if coverage:
-            self.linear_cover = nn.Linear(1, dim, bias=False)
+            self.linear_cover = nn.Linear(1, self.dim_attention, bias=False)
 
     def applyMask(self, mask):
         self.mask = mask
