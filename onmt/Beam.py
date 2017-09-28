@@ -51,19 +51,20 @@ class Beam(object):
         "Get the backpointers for the current timestep."
         return self.prevKs[-1]
 
-    def _global_score(self, ys=None, end=False, beta = 0.15):
-        pen = torch.min(1.0 - self.coverage,
-                        self.coverage.clone().fill_(0.0)).sum(1, keepdim=False)
+    def _global_score(self, ys=None, end=False, beta = 0.):
+        pen = beta * torch.min(
+            1.0 - self.coverage,
+            self.coverage.clone().fill_(0.0)).sum(1, keepdim=False)
 
-        for i in range(ys.size(0)):
-            if not end and ys[i] == self._eos:
-                pen[i] = -1e20
+        # for i in range(ys.size(0)):
+        #     if not end and ys[i] == self._eos:
+        #         pen[i] = -1e20
+        #
+        #     if self.sents[i] < 4:
+        #         pen[i] -= 1.0
+        return pen
 
-            if self.sents[i] < 4:
-                pen[i] -= 1.0
-        return beta * pen
-
-    def advance(self, wordLk, attnOut, alpha = 0.9):
+    def advance(self, wordLk, attnOut, alpha = 0.):
         """
         Given prob over words for every last beam `wordLk` and attention
         `attnOut`: Compute and update the beam search.
@@ -89,6 +90,10 @@ class Beam(object):
                 beamLk.add_(pen.unsqueeze(1))
         else:
             beamLk = wordLk[0]
+
+        for i, y in enumerate(ys):
+            if y == self._eos:
+                beamLk[i] -= 1e20
         flatBeamLk = beamLk.view(-1)
         bestScores, bestScoresId = flatBeamLk.topk(self.size, 0, True, True)
 
@@ -105,11 +110,11 @@ class Beam(object):
         self.attn.append(attnOut.index_select(0, prevK))
 
         if len(self.prevKs) == 1:
-            self.sents = self.nextYs[-1].eq(self.vocab.stoi["</t>"])
+            # self.sents = self.nextYs[-1].eq(self.vocab.stoi["</t>"])
             self.coverage = self.attn[-1]
         else:
             self.coverage = self.coverage.index_select(0, prevK).add(self.attn[-1])
-            self.sents = self.sents.index_select(0, prevK).add(self.nextYs[-1].eq(self.vocab.stoi["</t>"]))
+            # self.sents = self.sents.index_select(0, prevK).add(self.nextYs[-1].eq(self.vocab.stoi["</t>"]))
 
         ys = self.nextYs[-1].cpu()
         pen = None
@@ -119,17 +124,20 @@ class Beam(object):
                 s = self.scores[i]
                 if global_score:
                     # Ranking score from Wu et al.
-                    s = self.scores[i] / ((5 + len(self.nextYs)) ** alpha / (5 + 1) ** alpha)
-                    if pen is None:
-                        # Ranking score from Wu et al.
-                        pen = self._global_score(end=True, ys=ys)
-                    coverage_bonus = pen[i] if pen is not None else 0
-                    s += coverage_bonus
+                    # s = self.scores[i] / ((5 + len(self.nextYs)) ** alpha / (5 + 1) ** alpha)
+                    # Discount by length See et al.
+                    s = self.scores[i] / (1 + len(self.nextYs))
+                    # if pen is None:
+                    #     # Ranking score from Wu et al.
+                    #     pen = self._global_score(end=True, ys=ys)
+                    # coverage_bonus = pen[i] if pen is not None else 0
+                    # s += coverage_bonus
                 self.finished.append((s, len(self.nextYs) - 1, i))
 
-        # End condition is when top-of-beam is EOS.
-        # if self.nextYs[-1][0] == self.vocab.stoi[onmt.IO.EOS_WORD] and len(self.finished) > self.n_best:
-        #     self.done = True
+        # End condition is when all the next tokens are EOS.
+        if self.nextYs[-1].eq(self._eos).sum() == self.size \
+            and len(self.finished) >= self.n_best:
+            self.done = True
         #     self.allScores.append(self.scores)
 
         return self.done
