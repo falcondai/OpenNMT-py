@@ -165,11 +165,13 @@ class Translator(object):
                 out = out.log()
 
             # (c) Advance each beam.
+            n_done = 0
             for j, b in enumerate(beam):
                 is_done = b.advance(out[:, j], unbottle(attn["copy"]).data[:, j])
+                n_done += is_done
                 decStates.beamUpdate_(j, b.getCurrentOrigin(), beamSize)
-                if is_done:
-                    break
+            if n_done == batchSize:
+                break
             i += 1
 
         if "tgt" in batch.__dict__:
@@ -214,7 +216,7 @@ class Translator(object):
             predBatch.append(
                 [self.buildTargetTokens(pred[b][n], src[:, b],
                                         attn[b][n], src_vocab)
-                 for n in range(self.opt.n_best)]
+                 for n in range(min(self.opt.n_best, len(pred[b])))]
             )
 
         return predBatch, predScore, goldScore, attn, src

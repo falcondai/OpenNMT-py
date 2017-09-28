@@ -140,7 +140,7 @@ def main():
                             break
                         words.append(word)
 
-                os.write(1, bytes('SENT %d: %s\n' %
+                os.write(1, bytes('\nSENT %d: %s\n' %
                                   (count, " ".join(words)), 'UTF-8'))
                 # ex = data.examples[index]
                 # print(index, list(zip(ex.src, ex.src_feat_0, ex.src_feat_1,
@@ -169,9 +169,9 @@ def main():
 
                 if opt.n_best > 1:
                     print('\nBEST HYP:')
-                    for n in range(opt.n_best):
-                        os.write(1, bytes("[%.4f] %s\n" % (predScore[b][n],
-                                 " ".join(predBatch[b][n])),
+                    for score, tokens in zip(predScore[b][:opt.n_best], predBatch[b][:opt.n_best]):
+                        os.write(1, bytes("[%.4f] %s\n" % (score,
+                                 " ".join(tokens)),
                             'UTF-8'))
 
                 if opt.attn_debug:
