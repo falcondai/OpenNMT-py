@@ -183,11 +183,10 @@ class LossCompute:
         # Coverage loss term.
         ppl = loss.data.clone()
         if opt.coverage_attn:
-            cov = 0.1
-            if self.epoch > 8:
-                cov = 1
-            loss = loss + cov * \
-                torch.min(coverage, attn).sum()
+            # From See et al. Equations (10) and (11)
+            coverage_loss = torch.min(coverage, attn).sum()
+            loss = loss + opt.lambda_coverage * coverage_loss
+            print('covloss', coverage_loss.data[0] / attn.size(0) / attn.size(1))
 
         stats = onmt.Statistics.score(ppl, scores2, target, pad)
         return loss, stats
@@ -239,6 +238,9 @@ def trainModel(model, criterion, trainData, validData, fields, optim):
 
         # Main training loop
         for i, batch in enumerate(train):
+            # HACK for replicating See et al.
+            if i / len(train) > 0.17:
+                break
             target_size = batch.tgt.size(0)
             dec_state = None
             _, src_lengths = batch.src

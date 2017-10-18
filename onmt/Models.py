@@ -234,8 +234,10 @@ class Decoder(nn.Module):
 
                 # COVERAGE
                 if self._coverage:
+                    # HACK cuda only with GPUs
                     coverage = (coverage + attn) \
-                        if coverage is not None else attn
+                        if coverage is not None else Variable(torch.zeros(*attn.size())).cuda()
+                    # print('cov', coverage)
                     attns["coverage"] += [coverage]
 
                 # COPY
